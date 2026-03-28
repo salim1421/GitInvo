@@ -161,7 +161,7 @@ def main_dashboard(window, full_name, user_type):
 
     dash_frame = Frame(window, height=900, width=1300)
 
-    title_label = Label(dash_frame, text='Tk Comms Records', font=('times new roman', 50, 'bold'), fg='white', bg='navy')
+    title_label = Label(dash_frame, text='Inventory System', font=('times new roman', 50, 'bold'), fg='white', bg='navy')
     title_label.place(x=0, y=0, relwidth=1)
 
     logout_button = Button(dash_frame, text='Log Out', font=('Roboto', 15, 'bold'), fg='white', bg='navy', command=lambda:logout(window))

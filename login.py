@@ -66,7 +66,7 @@ def login_ui(window):
     login_image = Label(login_frame, image=window.l_image)
     login_image.pack(fill=X, padx=30, pady=30)
 
-    login_label = Label(login_frame, text='TkComms Records', font=('times new roman', 20, 'bold'))
+    login_label = Label(login_frame, text='My Inventory System', font=('times new roman', 20, 'bold'))
     login_label.pack(fill=X, pady=10)
 
     user_name_label = Label(login_frame, text='Enter Username:', font=('times new roman', 12, 'bold'))
