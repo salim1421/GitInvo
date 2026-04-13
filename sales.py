@@ -2,11 +2,13 @@ from tkinter import *
 from tkinter import ttk
 from tkinter import messagebox
 from fpdf import FPDF # type: ignore
-from employee import connect_database
+from database import connect_database
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
 import tempfile
 import os
+
+
+font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
 
 def logout(window):
     confirm = messagebox.askyesno(
@@ -31,57 +33,17 @@ def product_treeview(prod_treeview):
     
     try:
         cursor.execute(
-            'SELECT * FROM product_data ORDER BY id'
+            '''
+            SELECT id, name, unit_cost, detail, category, supplier, quantity, status FROM product_data
+            ORDER BY id
+            '''
         )
         products = cursor.fetchall()
         for product in products:
             prod_treeview.insert('', END, values=product)
     except Exception as e:
         print(f'Cannot Fetch Products, Due to {e}')
-    finally:
-        conn.close()
-        cursor.close()
-        
 
-def setup_database():
-    conn, cursor = connect_database()
-    if not conn:
-        return
-
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sales (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            customer_name VARCHAR(50),
-            phone VARCHAR(15),
-            subtotal DECIMAL(10,2),
-            tax DECIMAL(10,2),
-            total DECIMAL(10,2),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sales_items (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
-            product_id INTEGER,
-            product_name VARCHAR(50),
-            unit_cost DECIMAL(10,2),
-            selling_price DECIMAL(10, 2),
-            quantity INTEGER,
-            total DECIMAL(10,2),
-            profit DECIMAL(10, 2)
-        );
-        """)
-
-        conn.commit()
-        return True
-    finally:
-        conn.close()
-        cursor.close()
-        
-setup_database()
 
 
 def get_all_products():
@@ -117,7 +79,7 @@ def live_search_products(name):
         cursor.execute("""
             SELECT id, name, unit_cost, detail, category, supplier, quantity, status
             FROM product_data
-            WHERE CAST(name AS TEXT) ILIKE %s
+            WHERE CAST(name AS TEXT) LIKE ?
             ORDER BY id
         """, (f"%{name}%",))
         
@@ -158,6 +120,12 @@ def show_all_controller(cat_treeview):
 
 
 def sales_form(window, cashier_name):
+
+    def to_kobo(value):
+            value = value.strip()
+            if not value:
+                return 0
+            return int(float(value) * 100)
     
     selected_product = {"id": None, "name": None, "unit_cost": None, 'selling_price': None}
     def select_product(event):
@@ -181,23 +149,28 @@ def sales_form(window, cashier_name):
 
         conn, cursor = connect_database()
         cursor.execute(
-            "SELECT unit_cost FROM product_data WHERE id = %s",
+            "SELECT unit_cost, selling_price FROM product_data WHERE id = ?",
             (product_id,)
         )
         result = cursor.fetchone()
         cursor.close()
         conn.close()
 
-
         if result is None:
-            unit_cost = Decimal("0.00")
+            unit_cost = 0
+            selling_price = 0
         else:
-            unit_cost = Decimal(str(result[0]))
+            unit_cost = int(result[0])
+            selling_price = int(result[1])
 
-        # Update existing dictionary (DO NOT recreate it)
         selected_product["id"] = product_id
         selected_product["name"] = row[1]
         selected_product["unit_cost"] = unit_cost
+        selected_product["selling_price"] = selling_price
+
+        # show in UI (naira)
+        cost_price_entry.delete(0, END)
+        cost_price_entry.insert(0, selling_price * 100)
 
 
     cart = {}
@@ -206,7 +179,7 @@ def sales_form(window, cashier_name):
             prod_id = selected_product["id"]
             name = p_name_entry.get()
             unit_cost = selected_product["unit_cost"]
-            selling_price = Decimal(str(cost_price_entry.get() or "0.00"))
+            selling_price = int(cost_price_entry.get())
             qty = int(p_quantity_entry.get())
         except (ValueError, TypeError):
             messagebox.showerror("Error", "Invalid price or quantity")
@@ -282,6 +255,9 @@ def sales_form(window, cashier_name):
     
     def generate_bill(customer_name, contact, cashier_name, cart, bill):
 
+        def format_currency(kobo):
+            return f"NGN{kobo:,.2f}"
+
         if customer_name == "" or contact == "":
             messagebox.showerror("Error", "Customer details are required")
             return
@@ -326,9 +302,9 @@ def sales_form(window, cashier_name):
             )
 
         bill.insert('end', "="*42 + "\n")
-        bill.insert('end', f"{'Subtotal:':<26}{subtotal:.2f}\n")
-        bill.insert('end', f"{'Tax:':<26}{tax:.2f}\n")
-        bill.insert('end', f"{'Grand Total:':<26}{grand_total:.2f}\n")
+        bill.insert('end', f"{'Subtotal:':<26}{format_currency(subtotal)}\n")
+        bill.insert('end', f"{'Tax:':<26}{format_currency(tax)}\n")
+        bill.insert('end', f"{'Grand Total:':<26}{format_currency(grand_total)}\n")
         bill.insert('end', "="*42 + "\n")
         bill.insert('end', "\t Thank You! Visit Again\n")
 
@@ -337,6 +313,8 @@ def sales_form(window, cashier_name):
         # 🔹 Generate PDF
         pdf = FPDF()
         pdf.add_page()
+
+        pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         pdf.set_font("Courier", size=12)
 
         for line in bill.get(1.0, 'end').splitlines():
@@ -383,8 +361,8 @@ def sales_form(window, cashier_name):
         for pid, item in cart.items():
             cursor.execute("""
                 UPDATE product_data
-                SET quantity = quantity - %s
-                WHERE id = %s
+                SET quantity = quantity - ?
+                WHERE id = ?
             """, (item["qty"], pid))
 
 
@@ -397,8 +375,8 @@ def sales_form(window, cashier_name):
             messagebox.showerror("Error", "Cart is empty")
             return
 
-        subtotal = Decimal("0.00")
-        total_profit = Decimal("0.00")
+        subtotal = 0
+        total_profit = 0
         
         
         # Calculate subtotal and profit
@@ -413,14 +391,14 @@ def sales_form(window, cashier_name):
             )
         gettax = cursor.fetchone()[0]
 
-        tax = subtotal * Decimal(gettax)
+        tax = int(subtotal * (gettax/100))
         total = subtotal + tax
 
         # Insert into sales table (MATCHING YOUR COLUMNS)
         cursor.execute(
             """
             INSERT INTO sales (customer_name, phone, subtotal, tax, total)
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?)
             RETURNING id
             """,
             (customer_name, phone, subtotal, tax, total)
@@ -436,7 +414,7 @@ def sales_form(window, cashier_name):
                 """
                 INSERT INTO sales_items
                 (sale_id, product_id, product_name, unit_cost, selling_price, quantity, total, profit)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sale_id,

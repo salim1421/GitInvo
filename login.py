@@ -1,5 +1,5 @@
 from tkinter import *
-from employee import connect_database
+from database import connect_database
 from tkinter import messagebox
 from dashboard import main_dashboard
 import bcrypt # type: ignore
@@ -20,7 +20,7 @@ def login_ui(window):
 
         conn, cursor = connect_database()
         cursor.execute(
-            "SELECT password, name, user_type FROM employee_data WHERE LOWER(name)=LOWER(%s)",
+            "SELECT password, name, user_type FROM employee_data WHERE LOWER(name)=LOWER(?)",
             (username,)
         )
         result = cursor.fetchone()

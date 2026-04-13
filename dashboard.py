@@ -106,33 +106,47 @@ def total_suppliers():
 def tax_window():
     
     def save_tax():
-        saved_tax = float(tax_entry.get())
         try:
+            value = tax_entry.get().strip()
+            if not value:
+                raise ValueError("Tax is required")
+
+            saved_tax = float(value)
+
             conn, cursor = connect_database()
             if not conn or not cursor:
                 return
-            cursor.execute(
-                'CREATE TABLE IF NOT EXISTS tax_data(id INT PRIMARY KEY, tax DECIMAL(5,2))'
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tax_data(
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                tax REAL NOT NULL CHECK(tax >= 0 AND tax <= 100)
             )
-            cursor.execute(
-                'SELECT id FROM tax_data WHERE id=1'
-            )
-            if cursor.fetchone():
-                cursor.execute(
-                    'UPDATE tax_data SET tax=%s WHERE id=1', (saved_tax,)
-                )
-            else:    
-                cursor.execute(
-                    'INSERT INTO tax_data (id, tax) VALUES(1, %s)', (saved_tax,)
-                )
+            """)
+
+            cursor.execute("""
+            INSERT INTO tax_data (id, tax)
+            VALUES (1, ?)
+            ON CONFLICT(id) DO UPDATE SET tax=excluded.tax
+            """, (saved_tax,))
+
             conn.commit()
-            messagebox.showinfo('Success', 'Tax Saved Successfully', parent=tax_frame)
+
+            messagebox.showinfo(
+                'Success',
+                'Tax Saved Successfully',
+                parent=tax_frame
+            )
+
+        except ValueError as e:
+            messagebox.showerror('Error', str(e))
+
         except Exception as e:
             messagebox.showerror('Error', f'Cannot Add Tax, due to {e}')
+
         finally:
-            conn.close()
             cursor.close()
-            
+            conn.close()
     
     tax_frame = Toplevel()
     tax_frame.geometry('350x150+250+150')

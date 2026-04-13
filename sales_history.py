@@ -1,51 +1,7 @@
 from tkinter import *
 from tkinter import messagebox, ttk
 from tkinter import simpledialog
-from employee import connect_database
-from decimal import Decimal
-
-
-def setup_database():
-    conn, cursor = connect_database()
-    if not conn or not cursor:
-        return
-    try:
-        cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS refunds (
-        id SERIAL PRIMARY KEY,
-        sale_id INTEGER REFERENCES sales(id),
-        customer_name VARCHAR(100),
-        refund_total NUMERIC(12,2),
-        refund_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS refund_items(
-            id SERIAL PRIMARY KEY,
-            refund_id INTEGER REFERENCES refunds(id),
-            product_id INTEGER,
-            product_name VARCHAR(150),
-            quantity INTEGER,
-            unit_cost NUMERIC(12,2),
-            unit_price NUMERIC(12,2),
-            total NUMERIC(12,2),
-            profit NUMERIC(12,2)
-            )
-        """
-        )
-
-        conn.commit()
-        return True
-    
-    finally:
-        conn.close()
-        cursor.close()
-
-setup_database()
+from database import connect_database
 
 
 def process_refund(sale_id, refund_cart):
@@ -55,18 +11,18 @@ def process_refund(sale_id, refund_cart):
 
     try:
         # Check if sale exists
-        cursor.execute("SELECT id FROM sales WHERE id = %s", (sale_id,))
+        cursor.execute("SELECT id FROM sales WHERE id = ?", (sale_id,))
         if cursor.fetchone() is None:
             raise Exception("Sale ID not found.")
 
-        refund_total = Decimal("0.00")
+        refund_total = 0
 
         # Insert refund header
         cursor.execute("""
             INSERT INTO refunds (sale_id, customer_name, refund_total)
             SELECT id, customer_name, 0
             FROM sales
-            WHERE id = %s
+            WHERE id = ?
             RETURNING id
         """, (sale_id,))
 
@@ -80,7 +36,7 @@ def process_refund(sale_id, refund_cart):
             cursor.execute("""
                 SELECT quantity, selling_price, unit_cost
                 FROM sales_items
-                WHERE sale_id = %s AND product_id = %s
+                WHERE sale_id = ? AND product_id = ?
             """, (sale_id, pid))
 
             sale_result = cursor.fetchone()
@@ -95,7 +51,7 @@ def process_refund(sale_id, refund_cart):
                 SELECT COALESCE(SUM(quantity), 0)
                 FROM refund_items ri
                 JOIN refunds r ON ri.refund_id = r.id
-                WHERE r.sale_id = %s AND ri.product_id = %s
+                WHERE r.sale_id = ? AND ri.product_id = ?
             """, (sale_id, pid))
 
             refunded_qty = cursor.fetchone()[0]
@@ -114,7 +70,7 @@ def process_refund(sale_id, refund_cart):
                     INSERT INTO refund_items
                     (refund_id, product_id, product_name, quantity,
                     unit_cost, unit_price, total, profit)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (?,?,?,?,?,?,?,?)
                 """, (
                     refund_id,
                     pid,
@@ -129,15 +85,15 @@ def process_refund(sale_id, refund_cart):
             # Restore stock
             cursor.execute("""
                 UPDATE product_data
-                SET quantity = quantity + %s
-                WHERE id = %s
+                SET quantity = quantity + ?
+                WHERE id = ?
             """, (item["qty"], pid))
 
         # Update refund total
         cursor.execute("""
             UPDATE refunds
-            SET refund_total = %s
-            WHERE id = %s
+            SET refund_total = ?
+            WHERE id = ?
         """, (refund_total, refund_id))
 
         conn.commit()
@@ -211,8 +167,8 @@ def load_sales_history(period):
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        total_revenue = sum(Decimal(row[5]) for row in rows)
-        total_profit = sum(Decimal(row[6]) for row in rows)
+        total_revenue = sum(int(row[5]) for row in rows)
+        total_profit = sum(int(row[6]) for row in rows)
         total_cost = total_revenue - total_profit
 
         profit_margin = 0
@@ -254,7 +210,7 @@ def fetch_profit_by_period(period):
         cursor.execute(query)
         result = cursor.fetchone()[0]
 
-        return result or Decimal("0.00")
+        return result or 0
 
     finally:
         cursor.close()
@@ -279,7 +235,7 @@ def sales_history_form(window):
         cursor.execute("""
             SELECT product_id, product_name, quantity, selling_price, total
             FROM sales_items
-            WHERE sale_id = %s
+            WHERE sale_id = ?
         """, (sale_id,))
 
         rows = cursor.fetchall()
@@ -307,7 +263,7 @@ def sales_history_form(window):
         product_id = item_values[0]
         product_name = item_values[1]
         sold_qty = int(item_values[2])
-        selling_price = Decimal(item_values[3])
+        selling_price = int(float(item_values[3]))
 
         # Ask how many to refund
         refund_qty = simpledialog.askinteger(

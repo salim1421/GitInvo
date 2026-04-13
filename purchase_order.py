@@ -1,36 +1,6 @@
 from tkinter import Frame, ttk, Label, Button, Scrollbar, Entry, messagebox
-from employee import connect_database
+from database import connect_database
 from decimal import Decimal
-
-
-def setup_database():
-    conn, cursor = connect_database()
-    if not conn or not cursor:
-        return
-    
-    try:
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS purchase_orders (
-                id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                product_name VARCHAR(100) NOT NULL,
-                unit_cost NUMERIC(12,2) NOT NULL CHECK (unit_cost >= 0),
-                quantity INTEGER NOT NULL CHECK (quantity > 0),
-                details TEXT,
-                status VARCHAR(20) DEFAULT 'Pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                delivered_at TIMESTAMP
-            )
-        """
-        )
-        conn.commit()
-    except Exception as e:
-        print(f'Error Creating Database, due to {e}')
-    finally:
-        cursor.close()
-        conn.close()
-
-setup_database()
 
 
 def treeview_data(treeview):
@@ -99,7 +69,7 @@ def order_form(window):
         try:
             cursor.execute("""
                 DELETE FROM purchase_orders
-                WHERE id=%s AND status != 'Delivered'
+                WHERE id=? AND status != 'Delivered'
             """, (order_id,))
 
             if cursor.rowcount == 0:
@@ -184,10 +154,10 @@ def order_form(window):
             cursor.execute("""
                 INSERT INTO purchase_orders
                 (product_name, unit_cost, quantity, details, category, supplier, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'Pending')
+                VALUES (?, ?, ?, ?, ?, ?, 'Pending')
             """, (
                 product_name.strip(),
-                Decimal(unit_cost),
+                int(float(unit_cost)),
                 int(quantity),
                 details.strip(),
                 category.strip(),
@@ -232,14 +202,13 @@ def order_form(window):
             return False
 
         try:
-            conn.autocommit = False
+            cursor.execute('BEGIN')
 
             # Lock purchase order
             cursor.execute("""
                 SELECT product_name, unit_cost, quantity, details, category, supplier, status
                 FROM purchase_orders
-                WHERE id = %s
-                FOR UPDATE
+                WHERE id = ?
             """, (order_id,))
             order = cursor.fetchone()
             if not order:
@@ -256,7 +225,7 @@ def order_form(window):
             cursor.execute("""
                 INSERT INTO product_data
                 (name, unit_cost, quantity, detail, category, supplier, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'Active')
+                VALUES (?, ?, ?, ?, ?, ?, 'Active')
                 ON CONFLICT (name)
                 DO UPDATE SET
                     quantity = product_data.quantity + EXCLUDED.quantity,
@@ -279,7 +248,7 @@ def order_form(window):
                 UPDATE purchase_orders
                 SET status = 'Delivered',
                     delivered_at = CURRENT_TIMESTAMP
-                WHERE id = %s
+                WHERE id = ?
             """, (order_id,))
 
             conn.commit()
@@ -307,7 +276,7 @@ def order_form(window):
             cursor.execute("""
                 SELECT product_name, unit_cost, quantity, details, category, supplier, status
                 FROM purchase_orders
-                WHERE id = %s
+                WHERE id = ?
             """, (order_id,))
             order = cursor.fetchone()
             if not order:
@@ -361,7 +330,7 @@ def order_form(window):
     top_label = Label(main_frame, text='Manage Purchase Order', font=('times new roman', 13, 'bold'), fg='white', bg='navy')
     top_label.place(x=0, y=0, relwidth=1)
 
-    back = Button(main_frame, text='Home', font=('times new roman', 9, 'bold'), bg='navy', fg='white')
+    back = Button(main_frame, text='Home', font=('times new roman', 9, 'bold'), bg='navy', fg='white', command=lambda:main_frame.place_forget())
     back.place(x=0, y=0)
     
     #filter and search Area

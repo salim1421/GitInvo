@@ -1,5 +1,5 @@
 from tkinter import ttk
-from employee import connect_database
+from database import connect_database
 from tkinter import *
 from tkinter import messagebox
 
@@ -79,25 +79,7 @@ def add_product(
         if not conn or not cursor:
             return
         
-        cursor.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS product_data(
-                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                name VARCHAR(50),
-                unit_cost DECIMAL(10, 2),
-                selling_price DECIMAL(10, 2),
-                detail VARCHAR(50),
-                category VARCHAR(20),
-                supplier VARCHAR(50),
-                quantity INT NOT NULL CHECK(quantity > 0),
-                status VARCHAR(8),
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-
-            )
-        '''
-        )
-        cursor.execute('SELECT * FROM product_data WHERE name=%s AND category=%s AND supplier=%s', (name, category, supplier))
+        cursor.execute('SELECT * FROM product_data WHERE name=? AND category=? AND supplier=?', (name, category, supplier))
         existing_product = cursor.fetchone()
         if existing_product:
             messagebox.showerror('Error', 'Product Already Exists')
@@ -105,7 +87,7 @@ def add_product(
         cursor.execute(
             '''
             INSERT INTO product_data(name, unit_cost, detail, category, supplier, quantity, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (name, price, detail, category, supplier, quantity, status)
         )
         
@@ -114,9 +96,6 @@ def add_product(
         messagebox.showinfo('Success', 'Product Uploaded Successfully')
     except Exception as e:
         messagebox.showerror('Error', f'Error Due To {e}')
-    finally:
-        conn.close()
-        cursor.close()
         
         
 def update_data(
@@ -141,14 +120,14 @@ def update_data(
         cursor.execute(
             '''
             UPDATE product_data
-            SET name = %s,
-            unit_cost = %s,
-            detail = %s,
-            category = %s,
-            supplier = %s,
-            quantity = %s,
-            status = %s
-            WHERE id = %s
+            SET name = ?,
+            unit_cost = ?,
+            detail = ?,
+            category = ?,
+            supplier = ?,
+            quantity = ?,
+            status = ?
+            WHERE id = ?
             ''', (name, price, detail, category, supplier, quantity, status, int(prod_id))
         )
         if cursor.rowcount == 0:
@@ -158,8 +137,8 @@ def update_data(
         return True
         treeview_data(prod_treeview)
     finally:
-        conn.close()
         cursor.close()
+        conn.close()
 
 
 def select_data(
@@ -228,7 +207,7 @@ def delete_data(prod_id):
         return
     try:
         cursor.execute(
-            'DELETE FROM product_data WHERE id=%s', (prod_id.get(),)
+            'DELETE FROM product_data WHERE id=?', (prod_id.get(),)
         )
         if cursor.rowcount == 0:
             return False
@@ -237,9 +216,8 @@ def delete_data(prod_id):
         treeview_data(prod_treeview)
         prod_id.set('')
         return True
-    finally:
-        conn.close()
-        cursor.close()
+    except Exception as e:
+        messagebox.showerror('Error', f'Cannot Delete Data, Due to ({e})')
         
 
 def get_all_products():
@@ -284,7 +262,7 @@ def live_search_query(search_by, keyword):
         sql = f"""
             SELECT id, name, unit_cost, detail, category, supplier, quantity, status
             FROM product_data
-            WHERE {column} ILIKE %s
+            WHERE {column} LIKE ?
             ORDER BY id
         """
 
@@ -299,7 +277,6 @@ def live_search_query(search_by, keyword):
         cursor.close()
         conn.close()
 
-        
 
 def live_search(search_by, keyword, prod_treeview):
     if search_by.strip() == "Search By" or keyword.strip() == '':

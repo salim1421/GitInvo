@@ -17,21 +17,11 @@ def add_category(catid, name, desc):
         conn, cursor = connect_database()
         if not conn or not cursor:
             return
-        
-        cursor.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS category_data(
-                catid INTEGER PRIMARY KEY,
-                name VARCHAR(50),
-                description VARCHAR(15)
-            )
-        '''
-        )
 
         cursor.execute(
             """
             INSERT INTO category_data (catid, name, description)
-            VALUES (%s, %s, %s)
+            VALUES (?, ?, ?)
             """,
             (catid, name, desc),
         )
@@ -57,9 +47,9 @@ def update_data(catid, name, desc):
         cursor.execute(
             """
             UPDATE category_data
-            SET name = %s,
-            description = %s
-            WHERE catid = %s
+            SET name = ?,
+            description = ?
+            WHERE catid = ?
         """,
             (name, desc, catid),
         )
@@ -85,7 +75,7 @@ def delete_employee(catid):
         return False
 
     try:
-        cursor.execute("DELETE FROM category_data WHERE catid = %s", (int(catid),))
+        cursor.execute("DELETE FROM category_data WHERE catid = ?", (int(catid),))
 
         if cursor.rowcount == 0:
             return False
@@ -199,7 +189,7 @@ def live_search_employee(name):
         cursor.execute("""
             SELECT catid, name, description
             FROM category_data
-            WHERE CAST(name AS TEXT) ILIKE %s
+            WHERE CAST(name AS TEXT) LIKE ?
             ORDER BY catid
         """, (f"%{name}%",))
         
@@ -367,7 +357,7 @@ def category_form(window):
 
         confirm = messagebox.askyesno(
             "Confirm Delete",
-            "Are you sure you want to delete this employee?\nThis action cannot be undone.",
+            "Are you sure you want to delete this category?\nThis action cannot be undone.",
         )
 
         if not confirm:
@@ -383,7 +373,7 @@ def category_form(window):
                 cat_desc_entry,
                 False
             )
-            messagebox.showinfo("Deleted", "Employee deleted successfully")
+            messagebox.showinfo("Deleted", "Category deleted successfully")
         else:
             messagebox.showerror("Error", "Delete failed or employee not found")
             

@@ -1,13 +1,12 @@
 from tkinter import ttk
-from employee import connect_database
+from database import connect_database
 from tkinter import *
 from tkinter import messagebox
 
 
-def add_supplier(invoice_no, name, phone_no):
+def add_supplier(name, phone_no):
     if (
-        invoice_no == ""
-        or name == ""
+        name == ""
         or phone_no == ""
     ):
         messagebox.showerror("Error", "All Fields Are Required!")
@@ -17,23 +16,13 @@ def add_supplier(invoice_no, name, phone_no):
         conn, cursor = connect_database()
         if not conn or not cursor:
             return
-        
-        cursor.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS supplier_data(
-                invoice_no INTEGER PRIMARY KEY,
-                name VARCHAR(50),
-                phone_no VARCHAR(15)
-            )
-        '''
-        )
 
         cursor.execute(
             """
-            INSERT INTO supplier_data (invoice_no, name, phone_no)
-            VALUES (%s, %s, %s)
+            INSERT INTO supplier_data (name, phone_no)
+            VALUES (?, ?)
             """,
-            (invoice_no, name, phone_no),
+            (name, phone_no),
         )
 
         conn.commit()
@@ -48,7 +37,7 @@ def add_supplier(invoice_no, name, phone_no):
         conn.close()
 
 
-def update_data(invoice_no, name, phone_no):
+def update_data(sup_id, name, phone_no):
     conn, cursor = connect_database()
     if not conn:
         return False
@@ -57,11 +46,11 @@ def update_data(invoice_no, name, phone_no):
         cursor.execute(
             """
             UPDATE supplier_data
-            SET name = %s,
-            phone_no = %s
-            WHERE invoice_no = %s
+            SET name = ?,
+            phone_no = ?
+            WHERE id = ?
         """,
-            (name, phone_no, invoice_no),
+            (name, phone_no, sup_id),
         )
 
         if cursor.rowcount == 0:
@@ -79,32 +68,27 @@ def update_data(invoice_no, name, phone_no):
         conn.close()
 
 
-def delete_employee(invoice_no):
+def delete_data(sup_id):
     conn, cursor = connect_database()
     if not conn:
-        return False
-
+        return
     try:
-        cursor.execute("DELETE FROM supplier_data WHERE invoice_no = %s", (int(invoice_no),))
-
+        cursor.execute(
+            'DELETE FROM supplier_data WHERE id=?', (sup_id,)
+        )
         if cursor.rowcount == 0:
             return False
-
+        
         conn.commit()
+        treeview_data()
         return True
-
-    except Exception as e:
-        print("Delete Error:", e)
-        return False
-
     finally:
-        cursor.close()
         conn.close()
 
 
 def select_data(
     event,
-    invoice_no_entry,
+    sup_id,
     sup_name_entry,
     sup_phone_entry,
 ):
@@ -118,24 +102,21 @@ def select_data(
         return
 
     clear_fields(
-        invoice_no_entry,
         sup_name_entry,
         sup_phone_entry,
         False,
     )
 
-    invoice_no_entry.insert(0, row[0])
+    sup_id.set(row[0])
     sup_name_entry.insert(0, row[1])
     sup_phone_entry.insert(0, row[2])
 
 
 def clear_fields(
-    invoice_no_entry,
     sup_name_entry,
     sup_phone_entry,
     check,
 ):
-    invoice_no_entry.delete(0, END)
     sup_name_entry.delete(0, END)
     sup_phone_entry.delete(0, END)
     if check:
@@ -148,7 +129,7 @@ def treeview_data():
         return
     try:
         cursor.execute(
-            'SELECT * FROM supplier_data ORDER BY invoice_no'
+            'SELECT * FROM supplier_data ORDER BY id'
         )
         records = cursor.fetchall()
         sup_treeview.delete(*sup_treeview.get_children())
@@ -168,9 +149,9 @@ def fetch_data(sup_treeview):
 
     try:
         cursor.execute("""
-            SELECT invoice_no, name, phone_no
+            SELECT id, name, phone_no
             FROM supplier_data
-            ORDER BY invoice_no
+            ORDER BY id
         """)
         rows = cursor.fetchall()
 
@@ -190,18 +171,18 @@ def fetch_data(sup_treeview):
     
     
 
-def live_search_suppliers(invoice_no):
+def live_search_suppliers(aup_id):
     conn, cursor = connect_database()
     if not conn:
         return []
 
     try:
         cursor.execute("""
-            SELECT invoice_no, name, phone_no
+            SELECT id, name, phone_no
             FROM supplier_data
-            WHERE CAST(invoice_no AS TEXT) ILIKE %s
-            ORDER BY invoice_no
-        """, (f"%{invoice_no}%",))
+            WHERE CAST(id AS TEXT) LIKE ?
+            ORDER BY id
+        """, (f"%{aup_id}%",))
         
         return cursor.fetchall()
 
@@ -238,9 +219,9 @@ def get_all_suppliers():
     try:
         cursor.execute(
             """
-            SELECT invoice_no, name, phone_no
+            SELECT id, name, phone_no
             FROM supplier_data
-            ORDER BY invoice_no
+            ORDER BY id
         """
         )
         return cursor.fetchall()
@@ -283,12 +264,6 @@ def supplier_form(window):
     sup_form_frame = Frame(sup_frame, width=400)
     sup_form_frame.place(x=20, y=120)
     
-    invoice_no_label = Label(sup_form_frame, text='Invoice No.', font=('times new roman', 12))
-    invoice_no_label.grid(row=0, column=0, pady=10)
-    
-    invoice_no_entry = Entry(sup_form_frame, bg='lightblue')
-    invoice_no_entry.grid(row=0, column=1, pady=10)
-    
     sup_name_label = Label(sup_form_frame, text='Name', font=('times new roman', 12))
     sup_name_label.grid(row=1, column=0, pady=10)
     
@@ -309,7 +284,6 @@ def supplier_form(window):
     add_button = Button(
         button_frame, text='Add', font=('times new roman', 15, 'bold'), fg='white', bg='green',
         command=lambda:add_supplier(
-            invoice_no_entry.get(),
             sup_name_entry.get(),
             sup_phone_entry.get()
         )
@@ -320,14 +294,13 @@ def supplier_form(window):
     # Update and functionalities
     def update_and_refresh():
         success = update_data(
-            invoice_no_entry.get(),
+            sup_id.get(),
             sup_name_entry.get(),
             sup_phone_entry.get()
         )
         if success:
             fetch_data(sup_treeview)
             clear_fields(
-                invoice_no_entry,
                 sup_name_entry,
                 sup_phone_entry,
                 False
@@ -339,7 +312,6 @@ def supplier_form(window):
     update_button = Button(
         button_frame, text='Update', font=('times new roman', 15, 'bold'), fg='white', bg='navy',
         command=lambda:update_data(
-            invoice_no_entry.get(),
             sup_name_entry.get(),
             sup_phone_entry.get()
         )
@@ -350,7 +322,6 @@ def supplier_form(window):
     clear_button = Button(
         button_frame, text='Clear', font=('times new roman', 15, 'bold'), fg='white', bg='gray',
         command=lambda:clear_fields(
-            invoice_no_entry,
             sup_name_entry,
             sup_phone_entry,
             False
@@ -359,11 +330,10 @@ def supplier_form(window):
     clear_button.grid(row=0, column=2, padx=5)
 
     #Delete and functionalities
-    def delete_and_refresh():
-        invoice_no = invoice_no_entry.get()
+    def delete_and_refresh(sup_id):
 
-        if not invoice_no:
-            messagebox.showwarning("Warning", "Please select an employee to delete")
+        if not sup_id.get():
+            messagebox.showerror("Error", "No Supplier selected")
             return
 
         confirm = messagebox.askyesno(
@@ -374,24 +344,23 @@ def supplier_form(window):
         if not confirm:
             return
 
-        success = delete_employee(invoice_no)
+        success = delete_data(sup_id.get())
 
         if success:
             fetch_data(sup_treeview)
             clear_fields(
-                invoice_no_entry,
                 sup_name_entry,
                 sup_phone_entry,
-                FALSE,
+                False,
             )
-            messagebox.showinfo("Deleted", "Employee deleted successfully")
+            messagebox.showinfo("Deleted", "Supplier deleted successfully")
         else:
-            messagebox.showerror("Error", "Delete failed or employee not found")
+            messagebox.showerror("Error", "Delete failed or supplier not found")
             
     delete_button = Button(
         button_frame, text='Delete', font=('times new roman', 15, 'bold'), fg='white', bg='red4',
     )
-    delete_button.config(command=delete_and_refresh)
+    delete_button.config(command=lambda: delete_and_refresh(sup_id))
     delete_button.grid(row=0, column=3)
     
     
@@ -405,6 +374,7 @@ def supplier_form(window):
     search_label.grid(row=0, column=0)
     
     search_by_txt = StringVar()
+    sup_id = StringVar()
     
     search_entry = Entry(search_frame, bg='lightblue', textvariable=search_by_txt)
     search_entry.grid(row=0, column=1, padx=15)
@@ -422,7 +392,7 @@ def supplier_form(window):
     vertical_scroll = Scrollbar(table_frame, orient=VERTICAL)
     
     sup_treeview = ttk.Treeview(
-        table_frame, show='headings', columns=('Invoice No.', 'Name', 'Phone Number'), xscrollcommand=horizontal_scroll.set,
+        table_frame, show='headings', columns=('IDs', 'Name', 'Phone Number'), xscrollcommand=horizontal_scroll.set,
         yscrollcommand=vertical_scroll.set
     )
     horizontal_scroll.config(command=sup_treeview.xview)
@@ -431,7 +401,7 @@ def supplier_form(window):
     vertical_scroll.pack(side=RIGHT, fill=Y)
     sup_treeview.pack(fill=BOTH, expand=True)
     
-    sup_treeview.heading('Invoice No.', text='Invoice No.')
+    sup_treeview.heading('IDs', text='IDs')
     sup_treeview.heading('Name', text='Name')
     sup_treeview.heading('Phone Number', text='Phone Number')
     
@@ -442,7 +412,7 @@ def supplier_form(window):
         "<ButtonRelease-1>",
         lambda event: select_data(
             event,
-            invoice_no_entry,
+            sup_id,
             sup_name_entry,
             sup_phone_entry,
         ),

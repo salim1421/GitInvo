@@ -3,43 +3,13 @@ import psycopg2 # type: ignore
 from tkinter import messagebox
 from tkinter import ttk
 from decouple import config # type: ignore
-import bcrypt # type: ignore
+from database import connect_database
+import bcrypt
 
 
-def connect_database():
-    try:
-        conn = psycopg2.connect(
-            host=config('db_host', default='localhost'),
-            user=config('db_user'),
-            password=config('db_password'),
-            dbname=config('db_name'),
-            port=config('db_port', cast=int, default=5432),
-        )
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS employee_data (
-                empid INTEGER PRIMARY KEY,
-                name VARCHAR(100),
-                phone_number VARCHAR(15),
-                user_type VARCHAR(50),
-                password BYTEA
-            )
-        """
-        )
-        conn.commit()
-        return conn, cursor
-
-    except Exception as e:
-        messagebox.showerror("Database Error", str(e))
-        return None, None
-
-
-def add_employee(empid, name, phone_number, user_type, password):
+def add_employee(name, phone_number, user_type, password):
     if (
-        empid == ""
-        or name == ""
+        name == ""
         or phone_number == ""
         or user_type == ""
         or user_type == "Choose User Type"
@@ -57,10 +27,10 @@ def add_employee(empid, name, phone_number, user_type, password):
 
         cursor.execute(
             """
-            INSERT INTO employee_data (empid, name, phone_number, user_type, password)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO employee_data (name, phone_number, user_type, password)
+            VALUES (?, ?, ?, ?)
             """,
-            (empid, name, phone_number, user_type, hashed_password),
+            (name, phone_number, user_type, hashed_password),
         )
 
         conn.commit()
@@ -75,26 +45,35 @@ def add_employee(empid, name, phone_number, user_type, password):
         conn.close()
 
 
-def update_data(empid, name, phone, user_type, password):
+def update_data(name, phone, user_type, password):
     conn, cursor = connect_database()
     if not conn:
         return False
 
     try:
-        cursor.execute(
-            """
-            UPDATE employee_data
-            SET name = %s,
-                phone_number = %s,
-                user_type = %s,
-                password = %s
-            WHERE empid = %s
-        """,
-            (name, phone, user_type, password, empid),
-        )
+        if password:  # only update password if entered
+            hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+
+            cursor.execute(
+                """
+                UPDATE employee_data
+                SET name=?, phone_number=?, user_type=?, password=?
+                WHERE empid=?
+                """,
+                (name, phone, user_type, hashed_password),
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE employee_data
+                SET name=?, phone_number=?, user_type=?
+                WHERE empid=?
+                """,
+                (name, phone, user_type),
+            )
 
         if cursor.rowcount == 0:
-            return False  # No record updated
+            return False
 
         conn.commit()
         return True
@@ -114,7 +93,7 @@ def delete_employee(empid):
         return False
 
     try:
-        cursor.execute("DELETE FROM employee_data WHERE empid = %s", (int(empid),))
+        cursor.execute("DELETE FROM employee_data WHERE empid = ?", (int(empid),))
 
         if cursor.rowcount == 0:
             return False
@@ -133,7 +112,7 @@ def delete_employee(empid):
 
 def select_data(
     event,
-    emp_id_entry,
+    empid,
     emp_name_entry,
     emp_phone_entry,
     emp_user_type,
@@ -149,7 +128,6 @@ def select_data(
         return
 
     clear_fields(
-        emp_id_entry,
         emp_name_entry,
         emp_phone_entry,
         emp_user_type,
@@ -157,7 +135,7 @@ def select_data(
         False,
     )
 
-    emp_id_entry.insert(0, row[0])
+    empid.set(row[0])
     emp_name_entry.insert(0, row[1])
     emp_phone_entry.insert(0, row[2])
     emp_user_type.set(row[3])
@@ -167,14 +145,12 @@ def select_data(
 
 
 def clear_fields(
-    emp_id_entry,
     emp_name_entry,
     emp_phone_entry,
     emp_user_type,
     emp_password_entry,
     check,
 ):
-    emp_id_entry.delete(0, END)
     emp_name_entry.delete(0, END)
     emp_phone_entry.delete(0, END)
     emp_user_type.set("Select User Type")
@@ -238,9 +214,9 @@ def live_search_employee(search_by, keyword):
 
     try:
         query_map = {
-            "Employee ID": "CAST(empid AS TEXT) ILIKE %s",
-            "Name": "name ILIKE %s",
-            "Phone": "phone_number ILIKE %s",
+            "Employee ID": "CAST(empid AS TEXT) LIKE ?",
+            "Name": "name LIKE ?",
+            "Phone": "phone_number LIKE ?",
         }
 
         sql = f"""
@@ -341,6 +317,7 @@ def employee_form(window):
 
     search_txt_var = StringVar()
     search_by_var = StringVar(value='Select')
+    empid = StringVar()
 
     search_by = ttk.Combobox(
         search_frame,
@@ -400,12 +377,6 @@ def employee_form(window):
     emp_form_frame = Frame(emp_frame)
     emp_form_frame.place(x=50, y=330)
 
-    emp_id_label = Label(emp_form_frame, text="Id", font=("times new roman", 12))
-    emp_id_label.grid(row=0, column=0)
-
-    emp_id_entry = Entry(emp_form_frame, bg="lightblue")
-    emp_id_entry.grid(row=0, column=1, padx=5)
-
     emp_name_label = Label(emp_form_frame, text="Name", font=("times new roman", 12))
     emp_name_label.grid(row=0, column=2)
 
@@ -455,7 +426,6 @@ def employee_form(window):
         bg="green",
         width=15,
         command=lambda:add_employee(
-            emp_id_entry.get(),
             emp_name_entry.get(),
             emp_phone_entry.get(),
             emp_user_type.get(),
@@ -467,7 +437,6 @@ def employee_form(window):
     # update and functionalities
     def update_and_refresh():
         success = update_data(
-            emp_id_entry.get(),
             emp_name_entry.get(),
             emp_phone_entry.get(),
             emp_user_type.get(),
@@ -488,8 +457,8 @@ def employee_form(window):
         bg="navy",
         width=15,
         command=lambda: update_data(
-            emp_id_entry.get(),
             emp_name_entry.get(),
+            emp_phone_entry.get(),
             emp_user_type.get(),
             emp_password_entry.get(),
         ),
@@ -505,7 +474,6 @@ def employee_form(window):
         bg="gray",
         width=15,
         command=lambda: clear_fields(
-            emp_id_entry,
             emp_name_entry,
             emp_phone_entry,
             emp_user_type,
@@ -516,10 +484,8 @@ def employee_form(window):
     clear_button.grid(row=0, column=2, padx=5)
 
     # delete and functionalities
-    def delete_and_refresh():
-        empid = emp_id_entry.get()
-
-        if not empid:
+    def delete_and_refresh(empid):
+        if not empid.get():
             messagebox.showwarning("Warning", "Please select an employee to delete")
             return
 
@@ -531,17 +497,16 @@ def employee_form(window):
         if not confirm:
             return
 
-        success = delete_employee(empid)
+        success = delete_employee(empid.get())
 
         if success:
             fetch_data(emp_treeview)
             clear_fields(
-                emp_id_entry,
                 emp_name_entry,
                 emp_phone_entry,
                 emp_user_type,
                 emp_password_entry,
-                FALSE,
+                False,
             )
             messagebox.showinfo("Deleted", "Employee deleted successfully")
         else:
@@ -554,9 +519,8 @@ def employee_form(window):
         fg="white",
         bg="red4",
         width=15,
-        command=lambda:delete_employee()
+        command=lambda:delete_and_refresh(empid)
     )
-    delete_button.config(command=delete_and_refresh)
     delete_button.grid(row=0, column=3)
     
     
@@ -564,7 +528,7 @@ def employee_form(window):
         "<ButtonRelease-1>",
         lambda event: select_data(
             event,
-            emp_id_entry,
+            empid,
             emp_name_entry,
             emp_phone_entry,
             emp_user_type,
