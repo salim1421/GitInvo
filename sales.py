@@ -3,10 +3,14 @@ from tkinter import ttk
 from tkinter import messagebox
 from fpdf import FPDF # type: ignore
 from database import connect_database
+from money import format_currency, to_kobo, to_naira
 from datetime import datetime
 import tempfile
+import threading
 import os
 
+
+db_lock = threading.Lock()
 
 font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
 
@@ -121,11 +125,6 @@ def show_all_controller(cat_treeview):
 
 def sales_form(window, cashier_name):
 
-    def to_kobo(value):
-            value = value.strip()
-            if not value:
-                return 0
-            return int(float(value) * 100)
     
     selected_product = {"id": None, "name": None, "unit_cost": None, 'selling_price': None}
     def select_product(event):
@@ -160,8 +159,8 @@ def sales_form(window, cashier_name):
             unit_cost = 0
             selling_price = 0
         else:
-            unit_cost = int(result[0])
-            selling_price = int(result[1])
+            unit_cost = int(round(result[0]))
+            selling_price = int(round(result[1]))
 
         selected_product["id"] = product_id
         selected_product["name"] = row[1]
@@ -170,16 +169,16 @@ def sales_form(window, cashier_name):
 
         # show in UI (naira)
         cost_price_entry.delete(0, END)
-        cost_price_entry.insert(0, selling_price * 100)
+        cost_price_entry.insert(0, selling_price)
 
 
     cart = {}
     def add_to_cart():
         try:
             prod_id = selected_product["id"]
-            name = p_name_entry.get()
-            unit_cost = selected_product["unit_cost"]
-            selling_price = int(cost_price_entry.get())
+            name = p_name_entry.get().strip()
+            unit_cost = selected_product["unit_cost"]  # already kobo
+            selling_price = to_kobo(cost_price_entry.get())
             qty = int(p_quantity_entry.get())
         except (ValueError, TypeError):
             messagebox.showerror("Error", "Invalid price or quantity")
@@ -193,6 +192,16 @@ def sales_form(window, cashier_name):
             messagebox.showerror("Error", "Quantity must be greater than zero")
             return
 
+        if selling_price <= 0:
+            messagebox.showerror("Error", "Invalid selling price")
+            return
+        
+        if selling_price <= unit_cost:
+            messagebox.showwarning(
+                "Warning",
+                "Selling price must be greater than cost price to make profit"
+            )
+
         if prod_id in cart:
             cart[prod_id]["qty"] += qty
         else:
@@ -200,11 +209,9 @@ def sales_form(window, cashier_name):
                 "name": name,
                 "unit_cost": unit_cost,
                 "selling_price": selling_price,
-                "qty": qty,
-                "total": selling_price * qty
+                "qty": qty
             }
 
-        cart[prod_id]["total"] = cart[prod_id]["selling_price"] * cart[prod_id]["qty"]
         refresh_cart_treeview()
         clear_cart_inputs()
     
@@ -219,11 +226,34 @@ def sales_form(window, cashier_name):
                 values=(
                     pid,
                     item["name"],
-                    item["selling_price"],
+                    f"{to_naira(item['selling_price']):.2f}",
                     item["qty"],
-                    item["total"]
+                    f"{to_naira(item['selling_price'] * item['qty']):.2f}"
                 )
             )
+
+    
+    def calculate_cart_totals(cart):
+        subtotal = 0
+        total_profit = 0
+
+        for item in cart.values():
+            selling_price = float(item["selling_price"])
+            unit_cost = float(item["unit_cost"])
+            qty = int(item["qty"])
+
+            item_total = selling_price * qty
+            item_profit = (selling_price - unit_cost) * qty
+
+            item["total"] = item_total
+            item["profit"] = item_profit
+
+            subtotal += item_total
+            total_profit += item_profit
+
+        return subtotal, total_profit
+
+
 
     def clear_cart_inputs():
         p_name_entry.delete(0, END)
@@ -234,22 +264,40 @@ def sales_form(window, cashier_name):
     selected_cart_id = None
     
     def select_cart_item(event):
-        nonlocal selected_cart_id
+        global selected_cart_id
 
         selected = treeview.focus()
         if not selected:
             return
 
-        row = treeview.item(selected, "values")
-        selected_cart_id = row[0]   # product id
+        values = treeview.item(selected, "values")
+
+        if not values:
+            return
+
+        try:
+            selected_cart_id = int(values[0])
+        except (ValueError, IndexError):
+            selected_cart_id = None
         
     
     def remove_from_cart():
+        global selected_cart_id
+
         if not selected_cart_id:
             messagebox.showerror("Error", "Select an item from cart to remove")
             return
 
+        confirm = messagebox.askyesno(
+            "Remove Item",
+            "Are you sure you want to remove this item?"
+        )
+
+        if not confirm:
+            return
+
         del cart[selected_cart_id]
+        selected_cart_id = None
         refresh_cart_treeview()
 
     
@@ -298,7 +346,9 @@ def sales_form(window, cashier_name):
         for item in cart.values():
             bill.insert(
                 'end',
-                f"{item['name']:<12}{item['qty']:<6}{item['selling_price']:<8}{item['total']:<8}\n"
+                f"{item['name']:<12}{item['qty']:<6}"
+                f"{format_currency(item['selling_price']):<12}"
+                f"{format_currency(item['total']):<12}\n"
             )
 
         bill.insert('end', "="*42 + "\n")
@@ -367,76 +417,52 @@ def sales_form(window, cashier_name):
 
 
     def complete_sale(customer_name, phone, cart):
-        conn, cursor = connect_database()
-        if not conn or not cursor:
-            return
+        with db_lock:
+            conn, cursor = connect_database()
 
-        if not cart:
-            messagebox.showerror("Error", "Cart is empty")
-            return
+            if not cart:
+                messagebox.showerror("Error", "Cart is empty")
+                return
 
-        subtotal = 0
-        total_profit = 0
-        
-        
-        # Calculate subtotal and profit
-        for item in cart.values():
-            subtotal += item["total"]
-            item_profit = (item["selling_price"] - item["unit_cost"]) * item["qty"]
-            total_profit += item_profit
+            subtotal, total_profit = calculate_cart_totals(cart)
 
-        #DB tax
-        cursor.execute(
-                'SELECT tax FROM tax_data WHERE id=1'
-            )
-        gettax = cursor.fetchone()[0]
+            cursor.execute('SELECT tax FROM tax_data WHERE id=1')
+            tax_rate = cursor.fetchone()[0]
 
-        tax = int(subtotal * (gettax/100))
-        total = subtotal + tax
+            tax = int(subtotal * (tax_rate / 100))
+            total = subtotal + tax
 
-        # Insert into sales table (MATCHING YOUR COLUMNS)
-        cursor.execute(
-            """
-            INSERT INTO sales (customer_name, phone, subtotal, tax, total)
-            VALUES (?, ?, ?, ?, ?)
-            RETURNING id
-            """,
-            (customer_name, phone, subtotal, tax, total)
-        )
+            cursor.execute("""
+                INSERT INTO sales (customer_name, phone, subtotal, tax, total)
+                VALUES (?, ?, ?, ?, ?)
+            """, (customer_name, phone, subtotal, tax, total))
 
-        sale_id = cursor.fetchone()[0]
+            sale_id = cursor.lastrowid
 
-        # Insert items into sales_items
-        for prod_id, item in cart.items():
-            item_profit = (item["selling_price"] - item["unit_cost"]) * item["qty"]
-
-            cursor.execute(
-                """
-                INSERT INTO sales_items
-                (sale_id, product_id, product_name, unit_cost, selling_price, quantity, total, profit)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
+            for pid, item in cart.items():
+                cursor.execute("""
+                    INSERT INTO sales_items
+                    (sale_id, product_id, product_name, unit_cost, selling_price, quantity, total, profit)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
                     sale_id,
-                    prod_id,
+                    pid,
                     item["name"],
                     item["unit_cost"],
                     item["selling_price"],
                     item["qty"],
                     item["total"],
-                    item_profit
-                )
-            )
+                    item["profit"]
+                ))
 
-        deduct_stock(cart, cursor)
-        conn.commit()
-        cursor.close()
-        conn.close()
+            deduct_stock(cart, cursor)
+            conn.commit()
+            cursor.close()
+            conn.close()
 
-        messagebox.showinfo("Success", f"Sale completed!\nProfit: {total_profit:.2f}")
+            messagebox.showinfo("Success", f"Sale completed!\nProfit: {format_currency(total_profit)}")
 
-        return sale_id, subtotal, tax, total
-
+            return sale_id, subtotal, tax, total
 
 
     sales_frame = Frame(window, height=1270, width=1270)
@@ -450,6 +476,7 @@ def sales_form(window, cashier_name):
     )
     title_label.place(x=0, y=0, relwidth=1)
 
+    
     back = Button(
         sales_frame,
         text="Home",
@@ -459,6 +486,7 @@ def sales_form(window, cashier_name):
         command=sales_frame.place_forget,
     )
     back.place(x=0, y=0)
+
     
     #search fields
     search_frame = Frame(sales_frame, bd=2, relief=RIDGE)
@@ -649,11 +677,23 @@ def sales_form(window, cashier_name):
     )
     clear_button.grid(row=0, column=2)
 
-    logout_button = Button(
-        sales_frame, text='Log Out', font=('times new roman', 25, 'bold'), fg='white', bg='navy', width=15, height=2,
-        command=lambda:logout(window)
+    def get_user_type():
+        conn, cursor = connect_database()
+        if not conn:
+            return
+        
+        cursor.execute(
+            'SELECT user_type FROM employee_data'
         )
-    logout_button.place(x=900, y=550)
+        user = cursor.fetchall()
+        if user == 'Regular':
+            logout_button = Button(
+                sales_frame, text='Log Out', font=('times new roman', 25, 'bold'), fg='white', bg='navy', width=15, height=2,
+                command=lambda:logout(window)
+                )
+            logout_button.place(x=900, y=550)
+        
+    get_user_type()
     
     prod_treeview.bind("<ButtonRelease-1>", select_product)
     treeview.bind("<ButtonRelease-1>", select_cart_item)

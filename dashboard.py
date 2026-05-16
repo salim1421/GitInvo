@@ -5,10 +5,11 @@ from category import category_form
 from products import product_form
 from employee import connect_database
 from tkinter import messagebox
-from datetime import datetime
 from sales import sales_form
 from sales_history import sales_history_form
 from purchase_order import order_form
+from backup import backup_form
+from config import resource_path
 
 
 
@@ -188,7 +189,7 @@ def main_dashboard(window, full_name, user_type):
     side_frame = Frame(dash_frame, width=200)
     side_frame.place(x=0, y=100)
 
-    img = PhotoImage(file='images/my_logo.png')
+    img = PhotoImage(file=resource_path('images/my_logo.png'))
 
     logo = Label(side_frame, image=img)
     logo.image = img
@@ -227,6 +228,9 @@ def main_dashboard(window, full_name, user_type):
 
     #Tabs
 
+    settings_button = Button(dash_frame, text='Menu', font=('Roboto', 15, 'bold'), fg='white', bg='navy', width=15, command=lambda:show_form(window, backup_form))
+    settings_button.place(x=600, y=600)
+
     emp_tab = Frame(dash_frame, bg='navy')
     emp_tab.place(x=400, y=150, height=150, width=200)
 
@@ -263,6 +267,8 @@ def main_dashboard(window, full_name, user_type):
 
     products_tab_total = Label(products_tab, text=f'{all_products}', fg='white', bg='darkgreen', font=('times new roman', 50, 'bold'))
     products_tab_total.pack(fill=X)
+
+
 
     dash_frame.pack(fill=BOTH, expand=True)
     window.protocol("WM_DELETE_WINDOW", lambda: exit(window))

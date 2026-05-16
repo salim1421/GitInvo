@@ -45,7 +45,7 @@ def add_employee(name, phone_number, user_type, password):
         conn.close()
 
 
-def update_data(name, phone, user_type, password):
+def update_data(empid, name, phone, user_type, password):
     conn, cursor = connect_database()
     if not conn:
         return False
@@ -60,7 +60,7 @@ def update_data(name, phone, user_type, password):
                 SET name=?, phone_number=?, user_type=?, password=?
                 WHERE empid=?
                 """,
-                (name, phone, user_type, hashed_password),
+                (name, phone, user_type, hashed_password, empid),
             )
         else:
             cursor.execute(
@@ -69,7 +69,7 @@ def update_data(name, phone, user_type, password):
                 SET name=?, phone_number=?, user_type=?
                 WHERE empid=?
                 """,
-                (name, phone, user_type),
+                (name, phone, user_type, empid),
             )
 
         if cursor.rowcount == 0:
@@ -436,7 +436,16 @@ def employee_form(window):
 
     # update and functionalities
     def update_and_refresh():
+
+        selected = emp_treeview.focus()
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select an employee to update.", parent=window)
+            return
+
+        empid = emp_treeview.item(selected, "values")[0] 
+
         success = update_data(
+            empid,
             emp_name_entry.get(),
             emp_phone_entry.get(),
             emp_user_type.get(),
@@ -457,6 +466,7 @@ def employee_form(window):
         bg="navy",
         width=15,
         command=lambda: update_data(
+            empid,
             emp_name_entry.get(),
             emp_phone_entry.get(),
             emp_user_type.get(),

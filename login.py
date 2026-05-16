@@ -4,6 +4,7 @@ from tkinter import messagebox
 from dashboard import main_dashboard
 import bcrypt # type: ignore
 from sales import sales_form
+from config import resource_path
 
 
 
@@ -61,7 +62,7 @@ def login_ui(window):
     login_frame = Frame(main_frame, width=500, height=600)
     login_frame.place(x=450, y=50)
 
-    window.l_image = PhotoImage(file='images/my_logo.png')
+    window.l_image = PhotoImage(file=resource_path('images/my_logo.png'))
 
     login_image = Label(login_frame, image=window.l_image)
     login_image.pack(fill=X, padx=30, pady=30)
